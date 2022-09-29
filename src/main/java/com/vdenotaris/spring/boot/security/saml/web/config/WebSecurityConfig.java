@@ -16,6 +16,7 @@
 
 package com.vdenotaris.spring.boot.security.saml.web.config;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -26,6 +27,7 @@ import java.util.Timer;
 import org.apache.commons.httpclient.HttpClient;
 import org.apache.commons.httpclient.MultiThreadedHttpConnectionManager;
 import org.apache.velocity.app.VelocityEngine;
+import org.opensaml.saml2.metadata.provider.FilesystemMetadataProvider;
 import org.opensaml.saml2.metadata.provider.HTTPMetadataProvider;
 import org.opensaml.saml2.metadata.provider.MetadataProvider;
 import org.opensaml.saml2.metadata.provider.MetadataProviderException;
@@ -129,7 +131,7 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter implements I
     public VelocityEngine velocityEngine() {
         return VelocityFactory.getEngine();
     }
- 
+
     // XML parser pool needed for OpenSAML parsing
     @Bean(initMethod = "initialize")
     public StaticBasicParserPool parserPool() {
@@ -224,11 +226,11 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter implements I
     public KeyManager keyManager() {
         DefaultResourceLoader loader = new DefaultResourceLoader();
         Resource storeFile = loader
-                .getResource("classpath:/saml/samlKeystore.jks");
-        String storePass = "nalle123";
+                .getResource("classpath:/saml/keystore.pfx");
+        String storePass = "Test1234";
         Map<String, String> passwords = new HashMap<String, String>();
-        passwords.put("apollo", "nalle123");
-        String defaultKey = "apollo";
+        passwords.put("oiosaml-demo-app (funktionscertifikat)", "Test1234");
+        String defaultKey = "oiosaml-demo-app (funktionscertifikat)";
         return new JKSKeyManager(storeFile, storePass, passwords, defaultKey);
     }
     
@@ -268,15 +270,16 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter implements I
     }
     
 	@Bean
-	@Qualifier("idp-ssocircle")
-	public ExtendedMetadataDelegate ssoCircleExtendedMetadataProvider()
-			throws MetadataProviderException {
-		String idpSSOCircleMetadataURL = "https://idp.ssocircle.com/meta-idp.xml";
-		HTTPMetadataProvider httpMetadataProvider = new HTTPMetadataProvider(
-				this.backgroundTaskTimer, httpClient(), idpSSOCircleMetadataURL);
-		httpMetadataProvider.setParserPool(parserPool());
+	@Qualifier("idp-mitid")
+	public ExtendedMetadataDelegate mitIdExtendedMetadataProvider()
+            throws MetadataProviderException, IOException {
+        DefaultResourceLoader loader = new DefaultResourceLoader();
+        Resource metadata = loader
+                .getResource("classpath:/saml/test-devtest4-idp-metadata.xml");
+        FilesystemMetadataProvider metadataProvider = new FilesystemMetadataProvider(metadata.getFile());
+        metadataProvider.setParserPool(parserPool());
 		ExtendedMetadataDelegate extendedMetadataDelegate = 
-				new ExtendedMetadataDelegate(httpMetadataProvider, extendedMetadata());
+				new ExtendedMetadataDelegate(metadataProvider, extendedMetadata());
 		extendedMetadataDelegate.setMetadataTrustCheck(true);
 		extendedMetadataDelegate.setMetadataRequireSignature(false);
 		backgroundTaskTimer.purge();
@@ -288,9 +291,9 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter implements I
     // Do no forget to call iniitalize method on providers
     @Bean
     @Qualifier("metadata")
-    public CachingMetadataManager metadata() throws MetadataProviderException {
+    public CachingMetadataManager metadata() throws MetadataProviderException, IOException {
         List<MetadataProvider> providers = new ArrayList<MetadataProvider>();
-        providers.add(ssoCircleExtendedMetadataProvider());
+        providers.add(mitIdExtendedMetadataProvider());
         return new CachingMetadataManager(providers);
     }
  
@@ -298,10 +301,11 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter implements I
     @Bean
     public MetadataGenerator metadataGenerator() {
         MetadataGenerator metadataGenerator = new MetadataGenerator();
-        metadataGenerator.setEntityId("com:vdenotaris:spring:sp");
+        metadataGenerator.setEntityId("https://saml.oiosaml3-demo-app");
         metadataGenerator.setExtendedMetadata(extendedMetadata());
         metadataGenerator.setIncludeDiscoveryExtension(false);
-        metadataGenerator.setKeyManager(keyManager()); 
+        metadataGenerator.setKeyManager(keyManager());
+        metadataGenerator.setRequestSigned(true);
         return metadataGenerator;
     }
  
@@ -460,6 +464,10 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter implements I
                 samlWebSSOProcessingFilter()));
         chains.add(new DefaultSecurityFilterChain(new AntPathRequestMatcher("/saml/SSOHoK/**"),
                 samlWebSSOHoKProcessingFilter()));
+        chains.add(new DefaultSecurityFilterChain(new AntPathRequestMatcher("/saml/assertionConsumer/**"),
+                samlWebSSOProcessingFilter()));
+        chains.add(new DefaultSecurityFilterChain(new AntPathRequestMatcher("/saml/logoutResponse/**"),
+                samlLogoutProcessingFilter()));
         chains.add(new DefaultSecurityFilterChain(new AntPathRequestMatcher("/saml/SingleLogout/**"),
                 samlLogoutProcessingFilter()));
         chains.add(new DefaultSecurityFilterChain(new AntPathRequestMatcher("/saml/discovery/**"),
